@@ -12,6 +12,10 @@ def _extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[st
     Sucht im Hermes Executive Context, der SessionSource oder dem Parent-Context
     nach X-On-Behalf-Of und X-User-Groups.
     """
+    if ctx is None:
+        fallback = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip()
+        return (fallback if fallback else None, None)
+
     session_source = (
         getattr(ctx, "session_source", None)
         or getattr(ctx, "source", None)
@@ -45,33 +49,46 @@ def _extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[st
     )
 
 
-def inject_mcp_identity_headers(ctx: Any, request_headers: Dict[str, str]) -> Dict[str, str]:
+def inject_mcp_identity_headers(
+    ctx: Any = None,
+    request_headers: Optional[Dict[str, str]] = None,
+    headers: Optional[Dict[str, str]] = None,
+    **kwargs: Any,
+) -> Dict[str, str]:
     """
-    Hook-Funktion für ausgehende MCP-Requests (sowohl tools/list als auch tools/call).
-    Injektiert X-On-Behalf-Of und X-User-Groups in die HTTP/SSE-Header.
+    Hook-Funktion für ausgehende MCP-Requests (tools/list und tools/call).
+    Verarbeitet flexible Keyword-Argumente zur Vermeidung von Signature-Mismatches.
     """
-    if not isinstance(request_headers, dict):
-        request_headers = {}
+    target_headers = request_headers if request_headers is not None else headers
+    if not isinstance(target_headers, dict):
+        target_headers = {}
 
     on_behalf_of, user_groups = _extract_identity_from_context(ctx)
 
     if on_behalf_of:
-        request_headers["X-On-Behalf-Of"] = on_behalf_of
+        target_headers["X-On-Behalf-Of"] = on_behalf_of
         logger.debug("Hermes X-On-Behalf Hook: Injiziert X-On-Behalf-Of=%s", on_behalf_of)
 
     if user_groups:
-        request_headers["X-User-Groups"] = user_groups
+        target_headers["X-User-Groups"] = user_groups
         logger.debug("Hermes X-On-Behalf Hook: Injiziert X-User-Groups=%s", user_groups)
 
-    return request_headers
+    return target_headers
 
 
 def register(ctx: Any) -> None:
     """
-    Registriert den Outbound-Hook im Hermes Gateway / MCP-Subsystem.
+    Registriert den Outbound-Hook im Hermes PluginContext.
     """
     registered = False
 
+    # Standard Hermes Hook Registration
+    if hasattr(ctx, "register_hook"):
+        ctx.register_hook("pre_mcp_request", inject_mcp_identity_headers)
+        ctx.register_hook("pre_tool_call", inject_mcp_identity_headers)
+        registered = True
+
+    # Alternative Gateway / Custom Schnittstellen
     if hasattr(ctx, "register_mcp_request_hook"):
         ctx.register_mcp_request_hook(inject_mcp_identity_headers)
         registered = True
@@ -86,7 +103,9 @@ def register(ctx: Any) -> None:
         registered = True
 
     if registered:
-        logger.info("Plugin 'Hermes X-On-Behalf' erfolgreich für Outbound-Requests (tools/list & tools/call) registriert.")
+        logger.info(
+            "Plugin 'Hermes X-On-Behalf' erfolgreich für Outbound-Requests (tools/list & tools/call) registriert."
+        )
     else:
         logger.warning(
             "Plugin 'Hermes X-On-Behalf' konnte keinen passenden Hook an 'ctx' finden. "
