@@ -1,12 +1,16 @@
 name: hermes-x-on-behalf
 label: Hermes X-On-Behalf
 kind: standalone
-version: 0.1.1
+version: 0.1.0
 description: >
   Propagates user identity headers (X-On-Behalf-Of, X-User-Groups) from 
   platform sessions to outbound MCP requests for Agentgateway RBAC and dynamic tools/list filtering.
 author: Local Development
 optional_env:
+  - name: HERMES_X_ON_BEHALF_DEBUG
+    description: "Set to 1 or true to force verbose plugin debug logging to output"
+    prompt: "Enable Debug Logging"
+    password: false
   - name: MCP_IDENTITY_FALLBACK_USER
     description: "Fallback user ID when no session context is present (e.g. system cron)"
     prompt: "Fallback User ID"
