@@ -1,7 +1,7 @@
 name: hermes-x-on-behalf
 label: Hermes X-On-Behalf
 kind: standalone
-version: 0.1.2
+version: 0.1.3
 description: >
   Propagates user identity headers (X-On-Behalf-Of, X-User-Groups) from 
   platform sessions to outbound MCP requests for Agentgateway RBAC and dynamic tools/list filtering.
