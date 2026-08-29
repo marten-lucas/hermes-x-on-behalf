@@ -1,17 +1,16 @@
 name: hermes-x-on-behalf
-label: Hermes X-On-Behalf
+label: Hermes X-On-Behalf Identity Adapter
 kind: standalone
-version: 0.1.5
+version: 0.2.0
 description: >
-  Propagates a human user's identity (X-On-Behalf-Of, X-User-Groups) from Hermes
-  platform sessions to outbound MCP tool requests. The current implementation is
-  compatible with the Nextcloud Talk and Deck identity contract used by Hermes
-  adapters: source.user_id / source.extra_headers are treated as the canonical
-  human request context.
+  Propagates human user identity (X-On-Behalf-Of, X-User-Groups) via contextvars
+  to HTTP-based MCP tools (Agentgateway) and Honcho memory peer scopes.
 author: Local Development
+provides_hooks:
+  - pre_tool_call
 optional_env:
   - name: HERMES_X_ON_BEHALF_DEBUG
-    description: "Set to 1 or true to force verbose plugin debug logging to output"
+    description: "Set to 1 or true for verbose debug logging"
     prompt: "Enable Debug Logging"
     password: false
   - name: MCP_IDENTITY_FALLBACK_USER
