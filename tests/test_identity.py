@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from __future__ import annotations
 
 import importlib.util
@@ -56,3 +57,19 @@ class IdentityInjectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+=======
+import asyncio
+import httpx
+from plugin import set_identity_context, apply_http_interceptors
+
+apply_http_interceptors()
+set_identity_context("marten", "admin,kiga_board")
+
+async def test():
+    async with httpx.AsyncClient() as client:
+        # Sendet einen Test-Request an ein Echo-Ziel oder Localhost
+        req = client.build_request("GET", "https://httpbin.org/headers")
+        print("Outbound Headers:", req.headers.get("X-On-Behalf-Of"), req.headers.get("X-User-Groups"))
+
+asyncio.run(test())
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)

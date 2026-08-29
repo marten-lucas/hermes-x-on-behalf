@@ -1,4 +1,5 @@
 name: hermes-x-on-behalf
+<<<<<<< HEAD
 label: Hermes X-On-Behalf
 kind: standalone
 version: 0.1.4
@@ -12,6 +13,18 @@ author: Local Development
 optional_env:
   - name: HERMES_X_ON_BEHALF_DEBUG
     description: "Set to 1 or true to force verbose plugin debug logging to output"
+=======
+label: Hermes X-On-Behalf Identity Adapter
+kind: standalone
+version: 0.2.0
+description: >
+  Propagates human user identity (X-On-Behalf-Of, X-User-Groups) via contextvars
+  to HTTP-based MCP tools (Agentgateway) and Honcho memory peer scopes.
+author: Local Development
+optional_env:
+  - name: HERMES_X_ON_BEHALF_DEBUG
+    description: "Set to 1 or true for verbose debug logging"
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
     prompt: "Enable Debug Logging"
     password: false
   - name: MCP_IDENTITY_FALLBACK_USER

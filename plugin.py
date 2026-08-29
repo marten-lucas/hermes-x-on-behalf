@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Optional
+
+from .interceptor import apply_http_interceptors
 
 logger = logging.getLogger(__name__)
 
+# Task- und Thread-sicherer Identitätskontext für den HTTP-Transport
+current_user_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "current_user_id", default=None
+)
+current_user_groups: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "current_user_groups", default=None
+)
 
+<<<<<<< HEAD
 def _is_debug_enabled() -> bool:
     """Checks whether HERMES_X_ON_BEHALF_DEBUG is active."""
     return os.getenv("HERMES_X_ON_BEHALF_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
@@ -14,31 +25,67 @@ def _is_debug_enabled() -> bool:
 
 def _log(msg: str, *args: Any) -> None:
     if _is_debug_enabled():
+=======
+
+def is_debug_enabled() -> bool:
+    return os.getenv("HERMES_X_ON_BEHALF_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def log_debug(msg: str, *args: Any) -> None:
+    if is_debug_enabled():
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
         logger.info("[X-On-Behalf] " + msg, *args)
     else:
         logger.debug("[X-On-Behalf] " + msg, *args)
 
 
+<<<<<<< HEAD
 def _resolve_session_source(ctx: Any) -> Any:
+=======
+def set_identity_context(user_id: Optional[str], groups: Optional[str] = None) -> None:
+    fallback_user = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip() or None
+    final_user = user_id or fallback_user
+
+    current_user_id.set(final_user)
+    current_user_groups.set(groups)
+    log_debug("ContextVars aktualisiert -> User: %s | Groups: %s", final_user, groups)
+
+
+def resolve_session_source(ctx: Any) -> Any:
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
     if ctx is None:
         return None
     if isinstance(ctx, dict):
         for key in ("session_source", "source", "context"):
+<<<<<<< HEAD
             value = ctx.get(key)
             if value is not None:
                 return value
+=======
+            val = ctx.get(key)
+            if val is not None:
+                return val
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
         event = ctx.get("event")
         if event is not None:
             return getattr(event, "source", None) or getattr(event, "session_source", None)
         return None
 
+<<<<<<< HEAD
     session_source = (
+=======
+    source = (
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
         getattr(ctx, "session_source", None)
         or getattr(ctx, "source", None)
         or getattr(getattr(ctx, "event", None), "source", None)
         or getattr(getattr(ctx, "event", None), "session_source", None)
     )
+    if source is None and hasattr(ctx, "parent_context"):
+        return resolve_session_source(getattr(ctx, "parent_context"))
+    return source
 
+<<<<<<< HEAD
     if session_source is None and hasattr(ctx, "parent_context"):
         parent = getattr(ctx, "parent_context", None)
         if parent is not None:
@@ -62,9 +109,22 @@ def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str
         if isinstance(extra_headers, dict):
             on_behalf_of = extra_headers.get("X-On-Behalf-Of")
             user_groups = extra_headers.get("X-User-Groups")
+=======
 
-        if not on_behalf_of:
-            on_behalf_of = getattr(session_source, "user_id", None) or getattr(session_source, "user_name", None)
+def extract_identity(ctx: Any) -> tuple[Optional[str], Optional[str]]:
+    session_source = resolve_session_source(ctx)
+    if not session_source:
+        fallback = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip() or None
+        return fallback, None
+
+    on_behalf_of = None
+    user_groups = None
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
+
+    extra_headers = getattr(session_source, "extra_headers", None)
+    if isinstance(extra_headers, dict):
+        on_behalf_of = extra_headers.get("X-On-Behalf-Of")
+        user_groups = extra_headers.get("X-User-Groups")
 
         if isinstance(session_source, dict):
             extra_headers = session_source.get("extra_headers") or {}
@@ -75,14 +135,30 @@ def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str
                 on_behalf_of = session_source.get("user_id") or session_source.get("user_name")
 
     if not on_behalf_of:
+<<<<<<< HEAD
         on_behalf_of = fallback_user or None
+=======
+        on_behalf_of = getattr(session_source, "user_id", None) or getattr(
+            session_source, "user_name", None
+        )
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
 
-    return (
-        str(on_behalf_of).strip() if on_behalf_of else None,
-        str(user_groups).strip() if user_groups else None,
-    )
+    if isinstance(session_source, dict):
+        extra = session_source.get("extra_headers") or {}
+        if isinstance(extra, dict):
+            on_behalf_of = on_behalf_of or extra.get("X-On-Behalf-Of")
+            user_groups = user_groups or extra.get("X-User-Groups")
+        if not on_behalf_of:
+            on_behalf_of = session_source.get("user_id") or session_source.get("user_name")
+
+    fallback = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip() or None
+    final_user = str(on_behalf_of).strip() if on_behalf_of else fallback
+    final_groups = str(user_groups).strip() if user_groups else None
+
+    return final_user, final_groups
 
 
+<<<<<<< HEAD
 def _resolve_headers_container(payload: Any) -> Optional[Dict[str, str]]:
     if payload is None:
         return None
@@ -180,10 +256,17 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> An
         if user_groups:
             headers["X-User-Groups"] = user_groups
 
+=======
+def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> Any:
+    ctx = kwargs.get("context") or kwargs.get("ctx") or kwargs.get("request_context")
+    user_id, groups = extract_identity(ctx)
+    set_identity_context(user_id, groups)
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
     return kwargs.get("request") or kwargs.get("payload") or args or kwargs
 
 
 def register(ctx: Any) -> None:
+<<<<<<< HEAD
     """Registers the Hermes lifecycle hooks required for identity propagation."""
     _log("Registering identity hooks in Hermes...")
 
@@ -194,3 +277,18 @@ def register(ctx: Any) -> None:
     if hasattr(ctx, "register_middleware"):
         ctx.register_middleware("tool_request", on_pre_tool_call)
         logger.info("[X-On-Behalf] Registered 'tool_request' middleware.")
+=======
+    log_debug("Initialisiere Identity Plugin...")
+
+    # HTTP-Interzeptoren für remote MCPs (httpx & aiohttp)
+    apply_http_interceptors()
+
+    # Hermes Hooks registrieren
+    if hasattr(ctx, "register_hook"):
+        ctx.register_hook("pre_tool_call", on_pre_tool_call)
+        logger.info("[X-On-Behalf] 'pre_tool_call' Hook erfolgreich registriert.")
+
+    if hasattr(ctx, "register_middleware"):
+        ctx.register_middleware("tool_request", on_pre_tool_call)
+        logger.info("[X-On-Behalf] 'tool_request' Middleware erfolgreich registriert.")
+>>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)
