@@ -1,10 +1,13 @@
 name: hermes-x-on-behalf
 label: Hermes X-On-Behalf
 kind: standalone
-version: 0.1.3
+version: 0.1.4
 description: >
-  Propagates user identity headers (X-On-Behalf-Of, X-User-Groups) from 
-  platform sessions to outbound MCP requests for Agentgateway RBAC and dynamic tools/list filtering.
+  Propagates a human user's identity (X-On-Behalf-Of, X-User-Groups) from Hermes
+  platform sessions to outbound MCP tool requests. The current implementation is
+  compatible with the Nextcloud Talk and Deck identity contract used by Hermes
+  adapters: source.user_id / source.extra_headers are treated as the canonical
+  human request context.
 author: Local Development
 optional_env:
   - name: HERMES_X_ON_BEHALF_DEBUG

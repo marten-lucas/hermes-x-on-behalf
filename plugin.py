@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def _is_debug_enabled() -> bool:
-    """Prüft, ob HERMES_X_ON_BEHALF_DEBUG aktiv ist."""
+    """Checks whether HERMES_X_ON_BEHALF_DEBUG is active."""
     return os.getenv("HERMES_X_ON_BEHALF_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -19,26 +19,45 @@ def _log(msg: str, *args: Any) -> None:
         logger.debug("[X-On-Behalf] " + msg, *args)
 
 
-def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str]]:
-    """Extrahiert X-On-Behalf-Of und X-User-Groups aus dem Session Context."""
+def _resolve_session_source(ctx: Any) -> Any:
     if ctx is None:
-        fallback = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip()
-        return (fallback if fallback else None, None)
+        return None
+    if isinstance(ctx, dict):
+        for key in ("session_source", "source", "context"):
+            value = ctx.get(key)
+            if value is not None:
+                return value
+        event = ctx.get("event")
+        if event is not None:
+            return getattr(event, "source", None) or getattr(event, "session_source", None)
+        return None
 
     session_source = (
         getattr(ctx, "session_source", None)
         or getattr(ctx, "source", None)
         or getattr(getattr(ctx, "event", None), "source", None)
+        or getattr(getattr(ctx, "event", None), "session_source", None)
     )
 
-    if not session_source and hasattr(ctx, "parent_context"):
+    if session_source is None and hasattr(ctx, "parent_context"):
         parent = getattr(ctx, "parent_context", None)
-        session_source = getattr(parent, "session_source", None) or getattr(parent, "source", None)
+        if parent is not None:
+            return _resolve_session_source(parent)
 
+    return session_source
+
+
+def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str]]:
+    """Extracts X-On-Behalf-Of and X-User-Groups from the current Hermes session context."""
+    fallback_user = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip()
+    if ctx is None:
+        return (fallback_user or None, None)
+
+    session_source = _resolve_session_source(ctx)
     on_behalf_of: Optional[str] = None
     user_groups: Optional[str] = None
 
-    if session_source:
+    if session_source is not None:
         extra_headers = getattr(session_source, "extra_headers", {}) or {}
         if isinstance(extra_headers, dict):
             on_behalf_of = extra_headers.get("X-On-Behalf-Of")
@@ -47,10 +66,16 @@ def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str
         if not on_behalf_of:
             on_behalf_of = getattr(session_source, "user_id", None) or getattr(session_source, "user_name", None)
 
+        if isinstance(session_source, dict):
+            extra_headers = session_source.get("extra_headers") or {}
+            if isinstance(extra_headers, dict):
+                on_behalf_of = on_behalf_of or extra_headers.get("X-On-Behalf-Of")
+                user_groups = user_groups or extra_headers.get("X-User-Groups")
+            if not on_behalf_of:
+                on_behalf_of = session_source.get("user_id") or session_source.get("user_name")
+
     if not on_behalf_of:
-        fallback = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip()
-        if fallback:
-            on_behalf_of = fallback
+        on_behalf_of = fallback_user or None
 
     return (
         str(on_behalf_of).strip() if on_behalf_of else None,
@@ -58,26 +83,114 @@ def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str
     )
 
 
-def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> None:
-    """Callback für valide Hermes pre_tool_call Hooks."""
-    ctx = kwargs.get("context") or kwargs.get("ctx")
-    _log("pre_tool_call getriggert für Tool '%s'", tool_name)
+def _resolve_headers_container(payload: Any) -> Optional[Dict[str, str]]:
+    if payload is None:
+        return None
+
+    if isinstance(payload, dict):
+        if "headers" in payload and isinstance(payload["headers"], dict):
+            return payload["headers"]
+        if "extra_headers" in payload and isinstance(payload["extra_headers"], dict):
+            return payload["extra_headers"]
+        if all(key in payload for key in ("X-On-Behalf-Of", "X-User-Groups")):
+            return payload
+
+    headers = getattr(payload, "headers", None)
+    if isinstance(headers, dict):
+        return headers
+
+    extra_headers = getattr(payload, "extra_headers", None)
+    if isinstance(extra_headers, dict):
+        return extra_headers
+
+    return None
+
+
+def inject_mcp_identity_headers(payload: Any, ctx: Any = None) -> Any:
+    """Injects the current human identity into outgoing MCP requests, if present in the session context."""
+    if payload is None:
+        return payload
 
     on_behalf_of, user_groups = extract_identity_from_context(ctx)
+    if not on_behalf_of and not user_groups:
+        return payload
 
+    headers = _resolve_headers_container(payload) if not isinstance(payload, (str, bytes)) else None
+    if headers is None:
+        if isinstance(payload, dict):
+            headers = payload.setdefault("headers", {})
+        elif hasattr(payload, "headers"):
+            headers = getattr(payload, "headers")
+            if headers is None:
+                headers = {}
+                setattr(payload, "headers", headers)
+        else:
+            try:
+                payload.headers = {}
+                headers = payload.headers
+            except Exception:
+                return payload
+
+    if on_behalf_of:
+        headers["X-On-Behalf-Of"] = on_behalf_of
+        if hasattr(payload, "extra_headers"):
+            try:
+                payload.extra_headers["X-On-Behalf-Of"] = on_behalf_of
+            except Exception:
+                pass
+    if user_groups:
+        headers["X-User-Groups"] = user_groups
+        if hasattr(payload, "extra_headers"):
+            try:
+                payload.extra_headers["X-User-Groups"] = user_groups
+            except Exception:
+                pass
+
+    return payload
+
+
+def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> Any:
+    """Hook that mutates outbound tool request metadata with the human identity from the active session context."""
+    ctx = kwargs.get("context") or kwargs.get("ctx") or kwargs.get("request_context")
+    _log("pre_tool_call triggered for tool '%s'", tool_name)
+
+    on_behalf_of, user_groups = extract_identity_from_context(ctx)
     if on_behalf_of or user_groups:
-        _log("Identität: X-On-Behalf-Of=%s | X-User-Groups=%s", on_behalf_of, user_groups)
+        _log("Identity: X-On-Behalf-Of=%s | X-User-Groups=%s", on_behalf_of, user_groups)
+
+    payload_candidates = []
+    for key in ("request", "tool_request", "payload", "params", "data"):
+        if key in kwargs and kwargs[key] is not None:
+            payload_candidates.append(kwargs[key])
+    if args is not None:
+        payload_candidates.append(args)
+    if isinstance(args, dict):
+        payload_candidates.append(args.get("headers"))
+
+    for candidate in payload_candidates:
+        try:
+            inject_mcp_identity_headers(candidate, ctx)
+        except Exception:
+            pass
+
+    headers = kwargs.get("headers")
+    if isinstance(headers, dict):
+        if on_behalf_of:
+            headers["X-On-Behalf-Of"] = on_behalf_of
+        if user_groups:
+            headers["X-User-Groups"] = user_groups
+
+    return kwargs.get("request") or kwargs.get("payload") or args or kwargs
 
 
 def register(ctx: Any) -> None:
-    """Registriert ausschließlich valide Hermes Lifecycle Hooks."""
-    _log("Registriere Plugin-Hooks in Hermes...")
+    """Registers the Hermes lifecycle hooks required for identity propagation."""
+    _log("Registering identity hooks in Hermes...")
 
     if hasattr(ctx, "register_hook"):
-        # Valide Hermes Hooks
         ctx.register_hook("pre_tool_call", on_pre_tool_call)
-        logger.info("[X-On-Behalf] Erfolgreich für 'pre_tool_call' registriert.")
+        logger.info("[X-On-Behalf] Registered 'pre_tool_call'.")
 
     if hasattr(ctx, "register_middleware"):
-        # Valide Hermes Middleware (tool_request)
         ctx.register_middleware("tool_request", on_pre_tool_call)
+        logger.info("[X-On-Behalf] Registered 'tool_request' middleware.")
