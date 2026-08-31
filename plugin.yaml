@@ -1,7 +1,7 @@
 name: hermes-x-on-behalf
 label: Hermes X-On-Behalf Identity Adapter
 kind: standalone
-version: 0.2.0
+version: 0.2.1
 description: >
   Propagates human user identity (X-On-Behalf-Of, X-User-Groups) via contextvars
   to HTTP-based MCP tools (Agentgateway) and Honcho memory peer scopes.

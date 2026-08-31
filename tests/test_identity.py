@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 from __future__ import annotations
 
 import importlib.util
@@ -7,9 +6,20 @@ import unittest
 from pathlib import Path
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "plugin.py"
-SPEC = importlib.util.spec_from_file_location("hermes_x_on_behalf_plugin", MODULE_PATH)
+# Als Package laden, damit relative Imports (from .interceptor import ...) funktionieren
+PKG_NAME = "hermes_x_on_behalf"
+PKG_PATH = Path(__file__).resolve().parents[1]
+if PKG_NAME not in __import__("sys").modules:
+    import sys
+    import types
+    _pkg = types.ModuleType(PKG_NAME)
+    _pkg.__path__ = [str(PKG_PATH)]
+    sys.modules[PKG_NAME] = _pkg
+SPEC = importlib.util.spec_from_file_location(f"{PKG_NAME}.plugin", MODULE_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
+sys_modules = __import__("sys").modules
+sys_modules[f"{PKG_NAME}.plugin"] = MODULE
 SPEC.loader.exec_module(MODULE)
 extract_identity_from_context = MODULE.extract_identity_from_context
 inject_mcp_identity_headers = MODULE.inject_mcp_identity_headers
@@ -57,19 +67,3 @@ class IdentityInjectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-=======
-import asyncio
-import httpx
-from plugin import set_identity_context, apply_http_interceptors
-
-apply_http_interceptors()
-set_identity_context("marten", "admin,kiga_board")
-
-async def test():
-    async with httpx.AsyncClient() as client:
-        # Sendet einen Test-Request an ein Echo-Ziel oder Localhost
-        req = client.build_request("GET", "https://httpbin.org/headers")
-        print("Outbound Headers:", req.headers.get("X-On-Behalf-Of"), req.headers.get("X-User-Groups"))
-
-asyncio.run(test())
->>>>>>> f51496b (Füge Unterstützung für Benutzeridentitätskontext und HTTP-Header-Injektion hinzu)

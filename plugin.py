@@ -48,10 +48,6 @@ def _resolve_session_source(ctx: Any) -> Any:
         or getattr(getattr(ctx, "event", None), "source", None)
         or getattr(getattr(ctx, "event", None), "session_source", None)
     )
-    if source is None and hasattr(ctx, "parent_context"):
-        return resolve_session_source(getattr(ctx, "parent_context"))
-    return source
-
     if session_source is None and hasattr(ctx, "parent_context"):
         parent = getattr(ctx, "parent_context", None)
         if parent is not None:
@@ -71,37 +67,32 @@ def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str
     user_groups: Optional[str] = None
 
     if session_source is not None:
-        extra_headers = getattr(session_source, "extra_headers", {}) or {}
+        # Objekt-basierter Session-Source (SessionSource mit extra_headers-Attribut)
+        extra_headers = getattr(session_source, "extra_headers", None)
         if isinstance(extra_headers, dict):
             on_behalf_of = extra_headers.get("X-On-Behalf-Of")
             user_groups = extra_headers.get("X-User-Groups")
 
-    extra_headers = getattr(session_source, "extra_headers", None)
-    if isinstance(extra_headers, dict):
-        on_behalf_of = extra_headers.get("X-On-Behalf-Of")
-        user_groups = extra_headers.get("X-User-Groups")
+        # Fallback: user_id / user_name direkt vom Source (Objekt oder Dict)
+        if not on_behalf_of:
+            on_behalf_of = (
+                getattr(session_source, "user_id", None)
+                or getattr(session_source, "user_name", None)
+            )
 
+        # Dict-basierter Session-Source
         if isinstance(session_source, dict):
-            extra_headers = session_source.get("extra_headers") or {}
-            if isinstance(extra_headers, dict):
-                on_behalf_of = on_behalf_of or extra_headers.get("X-On-Behalf-Of")
-                user_groups = user_groups or extra_headers.get("X-User-Groups")
+            extra = session_source.get("extra_headers") or {}
+            if isinstance(extra, dict):
+                on_behalf_of = on_behalf_of or extra.get("X-On-Behalf-Of")
+                user_groups = user_groups or extra.get("X-User-Groups")
             if not on_behalf_of:
                 on_behalf_of = session_source.get("user_id") or session_source.get("user_name")
 
     if not on_behalf_of:
         on_behalf_of = fallback_user or None
 
-    if isinstance(session_source, dict):
-        extra = session_source.get("extra_headers") or {}
-        if isinstance(extra, dict):
-            on_behalf_of = on_behalf_of or extra.get("X-On-Behalf-Of")
-            user_groups = user_groups or extra.get("X-User-Groups")
-        if not on_behalf_of:
-            on_behalf_of = session_source.get("user_id") or session_source.get("user_name")
-
-    fallback = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip() or None
-    final_user = str(on_behalf_of).strip() if on_behalf_of else fallback
+    final_user = str(on_behalf_of).strip() if on_behalf_of else None
     final_groups = str(user_groups).strip() if user_groups else None
 
     return final_user, final_groups
@@ -210,6 +201,12 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> An
 def register(ctx: Any) -> None:
     """Registers the Hermes lifecycle hooks required for identity propagation."""
     _log("Registering identity hooks in Hermes...")
+
+    # HTTP-Transport-Interzeptoren aktivieren (ContextVars → Header auf allen aiohttp/httpx Requests)
+    try:
+        apply_http_interceptors()
+    except Exception as exc:
+        logger.warning("[X-On-Behalf] HTTP-Interzeptoren konnten nicht aktiviert werden: %s", exc)
 
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", on_pre_tool_call)
