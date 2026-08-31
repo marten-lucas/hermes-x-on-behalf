@@ -61,9 +61,11 @@ git clone [https://github.com/marten-lucas/hermes-x-on-behalf.git](https://githu
 hermes-x-on-behalf/
 ├── README.md
 ├── __init__.py
-├── plugin.py
-└── plugin.yaml
-
+├── plugin.py              # ContextVars, identity extraction, register(ctx)
+├── interceptor.py         # HTTP interceptors (aiohttp + httpx header injection)
+├── plugin.yaml
+└── tests/
+    └── test_identity.py
 ```
 
 ---
@@ -77,6 +79,13 @@ The plugin works with any platform adapter that populates the human identity on 
 
 For Talk, the existing adapter pattern already sets this on the source object.
 For Deck, the same contract should be used for the human trigger / requestor, not the Hermes bot account.
+
+### Optional Environment Variables
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `MCP_IDENTITY_FALLBACK_USER` | Fallback user ID when no session context is present (e.g., system cronjobs). | *(empty)* |
+| `HERMES_X_ON_BEHALF_DEBUG` | Set to `1`/`true` for verbose debug logging of identity extraction and header injection. | *(disabled)* |
 
 ### Optional Environment Variables
 
@@ -105,6 +114,27 @@ The Talk adapter is already compatible with this plugin when it sets the human s
 Deck should follow the same identity contract: the active source must represent the human trigger or requester, not the Hermes bot user. If a Deck card was triggered by a human user or a human comment, the plugin will propagate that identity to downstream MCP requests.
 
 This keeps tool execution, memory boundaries, and auditing aligned with the human user rather than the Hermes service account.
+
+## Diagnostics
+
+Verify plugin registration and hook wiring:
+
+```bash
+hermes plugins doctor hermes-x-on-behalf
+```
+
+With `HERMES_X_ON_BEHALF_DEBUG=1`, the plugin logs identity extraction results
+and injected headers at INFO level (prefix `[X-On-Behalf]`), visible in
+`~/.hermes/logs/agent.log`.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The suite covers context extraction from object- and dict-based session
+sources, fallback-user resolution, and hook registration.
 
 ## License
 
