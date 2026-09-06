@@ -21,18 +21,16 @@ def apply_http_interceptors() -> None:
 
 
 def _get_active_headers() -> dict[str, str]:
-    from .plugin import current_user_groups, current_user_id
+    """Headers des aktiven PrincipalContext (X-On-Behalf-Of, X-User-Groups,
+    X-Conversation-Id, X-Source-Adapter). Leer, wenn kein Principal aktiv."""
+    from .headers import current_headers
 
-    headers = {}
-    uid = current_user_id.get()
-    groups = current_user_groups.get()
-
-    if uid:
-        headers["X-On-Behalf-Of"] = str(uid)
-    if groups:
-        headers["X-User-Groups"] = str(groups)
-
-    return headers
+    try:
+        return current_headers()
+    except Exception:
+        # Header-Injektion darf einen Request niemals zum Scheitern bringen
+        logger.debug("[X-On-Behalf] Header-Ableitung fehlgeschlagen — Request ohne Identity-Header.", exc_info=True)
+        return {}
 
 
 def _patch_httpx() -> None:

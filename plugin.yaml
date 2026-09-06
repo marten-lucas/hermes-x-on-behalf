@@ -1,19 +1,32 @@
 name: hermes-x-on-behalf
-label: Hermes X-On-Behalf Identity Adapter
+label: Hermes X-On-Behalf Principal Context
 kind: standalone
-version: 0.2.1
+version: 1.0.0
 description: >
-  Propagates human user identity (X-On-Behalf-Of, X-User-Groups) via contextvars
-  to HTTP-based MCP tools (Agentgateway) and Honcho memory peer scopes.
+  Identity / Principal-Context propagation layer. Resolves the human principal
+  (user, groups, conversation, channel) from platform adapters, computes memory
+  scopes server-side (configurable group mapping), and propagates identity via
+  contextvars and HTTP headers (httpx/aiohttp) to MCP tools and gateways.
+  Optional Honcho integration wraps Hermes' Honcho memory provider
+  (workspace/peer/session from PrincipalContext); Honcho usage is optional.
 author: Local Development
 provides_hooks:
   - pre_tool_call
+config_file: ~/.hermes/x-on-behalf.yaml
 optional_env:
   - name: HERMES_X_ON_BEHALF_DEBUG
-    description: "Set to 1 or true for verbose debug logging"
+    description: "Set to 1 or true for verbose debug logging (principal + scopes, never memory contents)"
     prompt: "Enable Debug Logging"
     password: false
   - name: MCP_IDENTITY_FALLBACK_USER
-    description: "Fallback user ID when no session context is present (e.g. system cron)"
-    prompt: "Fallback User ID"
+    description: "Fallback user ID for system requests (cron/background). Produces kind=system principals without personal/team memory access."
+    prompt: "Fallback User ID (system)"
+    password: false
+  - name: HERMES_X_ON_BEHALF_ADAPTER_SECRET
+    description: "Shared secret between adapters and Hermes. When set, incoming X-Adapter-Secret headers are validated (anti-spoofing)."
+    prompt: "Adapter Shared Secret"
+    password: true
+  - name: HERMES_X_ON_BEHALF_CONFIG
+    description: "Custom path to the YAML config file (default: ~/.hermes/x-on-behalf.yaml)"
+    prompt: "Config File Path"
     password: false

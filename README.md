@@ -1,141 +1,89 @@
-# Hermes X-On-Behalf Plugin
+# Hermes X-On-Behalf Plugin (v1.0)
 
-A Hermes Agent Extension plugin that transparently propagates the human user identity and group memberships from platform channels (e.g., Nextcloud Talk, Nextcloud Deck) to outbound Model Context Protocol (MCP) requests and API Gateways (such as **Agentgateway**).
+Identity / **Principal-Context-Propagation**-Plugin für Hermes Agent. Es löst den menschlichen Principal (User, Gruppen, Conversation, Channel) aus den Plattform-Adaptern (Nextcloud Talk, Nextcloud Deck) auf, berechnet daraus **serverseitig** Memory-Scopes und propagiert die Identität via ContextVars und HTTP-Headern an MCP-Tools und Gateways.
 
-## Overview
-
-When Hermes Agent acts on behalf of a human user in a chat or board session, outbound MCP tool calls are typically initiated by the agent process itself. This extension intercepts outgoing request metadata during the **Discovery Phase (`tools/list`)** and the **Execution Phase (`tools/call`)**, injecting the original requester's identity headers:
-
-* `X-On-Behalf-Of`: The username or unique ID of the human initiator (e.g., `marten`).
-* `X-User-Groups`: Comma-separated list of the user's groups (e.g., `admin,kiga_board`).
-
-The plugin expects Hermes platform adapters to provide the identity in a stable contract:
-
-* `source.user_id` or `source.user_name` for the human trigger
-* `source.extra_headers["X-On-Behalf-Of"]` and `source.extra_headers["X-User-Groups"]` when the adapter already resolved group membership
-
-This makes the plugin compatible with both the Nextcloud Talk adapter and the Deck adapter pattern, as long as the adapter sets the human-trigger user on the source object rather than the Hermes bot identity.
-
-### Key Benefits
-* **Dynamic RBAC:** Enables **Agentgateway** or downstream MCP servers to filter visible tools in `tools/list` based on the calling user's permissions.
-* **Security & Non-Repudiation:** Prevents prompt injection risks where an LLM could try to manipulate or claim a fake `user_id` inside tool arguments.
-* **Memory Isolation:** Uses the human trigger as the downstream identity, so memory and permission boundaries align with the triggering user instead of the Hermes bot account.
-* **Subagent Inheritance:** Propagates parent session context when Hermes delegates tasks to subagents.
-
----
-
-## Architecture Flow
-
-```text
-[ Platform Adapter (Talk / Deck) ]
-  └── Sets: source.user_id = "marten"
-  └── Sets: source.extra_headers = { "X-On-Behalf-Of": "marten", "X-User-Groups": "admin,kiga_board" }
-         │
-         ├───> [ Human-scoped memory / permission layer ]
-         │
-         ▼
-[ Hermes X-On-Behalf Plugin ] (Hook + request mutation)
-         │
-         ├─ 1. tools/list  (Discovery: Agentgateway filters visible tools per user)
-         └─ 2. tools/call  (Execution: Evaluates tool permissions)
-         ▼
-[ Agentgateway / MCP Server ] (Receives requests with authentic user headers)
+## Architektur
 
 ```
-
----
-
-## Installation
-
-Clone or place this repository into your Hermes Agent plugins directory:
-
-```bash
-cd ~/.hermes/plugins/ # or your Hermes gateway plugins directory
-git clone [https://github.com/marten-lucas/hermes-x-on-behalf.git](https://github.com/marten-lucas/hermes-x-on-behalf.git)
-
-```
-
-### Directory Structure
-
-```text
 hermes-x-on-behalf/
-├── README.md
-├── __init__.py
-├── plugin.py              # ContextVars, identity extraction, register(ctx)
-├── interceptor.py         # HTTP interceptors (aiohttp + httpx header injection)
-├── plugin.yaml
-└── tests/
-    └── test_identity.py
+├── principal.py      # PrincipalContext (user, groups, org, conversation, channel, kind)
+├── context.py        # current_principal ContextVar + principal_context() (Token-Reset)
+├── scopes.py         # MemoryScopeResolver: Group→Scope-Mapping, Memory-Tags, Default-Scope
+├── headers.py        # Header-Ableitung + X-Adapter-Secret-Validierung
+├── config.py         # ~/.hermes/config.yaml (x_on_behalf:) als einzige Quelle + Env-Overrides
+├── honcho.py         # Optional: Wrapt Hermes' Honcho-Provider (Principal → peer/session)
+├── interceptor.py    # httpx/aiohttp Header-Injektion aus current_principal
+├── skills/
+│   └── memory-routing/SKILL.md   # Bündelt die Routing-Heuristik für den Agent
+└── plugin.py         # Hermes Lifecycle-Hooks (register, pre_tool_call, Skill-Registrierung)
 ```
 
----
+### Kernprinzipien (Security)
 
-## Configuration
+1. **Scopes werden serverseitig berechnet** — niemals aus Client-Headern oder LLM-/Tool-Argumenten übernommen. `X-Memory-Scopes` wird bewusst nicht als Header transportiert.
+2. **Token-basierter Context-Reset**: Identität wird ausschließlich über `principal_context(principal)` gesetzt und im `finally` zurückgesetzt — kein Identity-Leak bei parallelen Requests.
+3. **Drei Principal-Arten**: `interactive` (echter Mensch), `system` (Cron/Fallback — bekommt niemals Personal-/Team-Memory), `anonymous`.
+4. **Gruppen ≠ Memory-Teams**: Nur im YAML-Mapping als `team` eingestufte Nextcloud-Gruppen werden zu Memory-Scopes; `admin`/`employees` etc. bleiben Berechtigungs- bzw. Org-Gruppen.
+5. **Anti-Spoofing**: Ist `HERMES_X_ON_BEHALF_ADAPTER_SECRET` gesetzt, akzeptiert `build_principal_from_context` Identity-Header (`X-On-Behalf-Of` etc.) aus dem Session-Kontext nur mit gültigem `X-Adapter-Secret` — andernfalls wird der Request `anonymous`. Ohne konfiguriertes Secret ist die Prüfung deaktiviert (offen).
 
-The plugin works with any platform adapter that populates the human identity on the active session context. The supported contract is:
+## Verwendung in Adaptern
 
-- `source.user_id` or `source.user_name` for the human requestor
-- `source.extra_headers["X-On-Behalf-Of"]` / `source.extra_headers["X-User-Groups"]` when the adapter already resolved user groups
+```python
+principal = identity.build_principal(user_id, groups, room_id=room_id, is_group_chat=True)
+if principal is not None:
+    with identity.principal_context(principal):
+        await self.handle_message(event)
 
-For Talk, the existing adapter pattern already sets this on the source object.
-For Deck, the same contract should be used for the human trigger / requestor, not the Hermes bot account.
-
-### Optional Environment Variables
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `MCP_IDENTITY_FALLBACK_USER` | Fallback user ID when no session context is present (e.g., system cronjobs). | *(empty)* |
-| `HERMES_X_ON_BEHALF_DEBUG` | Set to `1`/`true` for verbose debug logging of identity extraction and header injection. | *(disabled)* |
-
-### Optional Environment Variables
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `MCP_IDENTITY_FALLBACK_USER` | Fallback user ID when no session context is present (e.g., system cronjobs). | *(empty)* |
-
----
-
-## How It Works
-
-1. **Context Extraction:** Inspects the active `SessionSource`, `MessageEvent`, or parent subagent context for identity headers.
-2. **Header Injection:** Writes `X-On-Behalf-Of` and `X-User-Groups` back onto the current outbound request metadata, so downstream MCP servers see the human identity instead of the Hermes bot identity.
-3. **Graceful Fallbacks:** If no active user session exists (e.g., automated cron tasks), it falls back to `MCP_IDENTITY_FALLBACK_USER` or continues without headers, logging a debug message without breaking execution.
-
----
-
-## Compatibility Notes
-
-### Nextcloud Talk
-
-The Talk adapter is already compatible with this plugin when it sets the human sender on the message source and exposes the configured user groups.
-
-### Nextcloud Deck
-
-Deck should follow the same identity contract: the active source must represent the human trigger or requester, not the Hermes bot user. If a Deck card was triggered by a human user or a human comment, the plugin will propagate that identity to downstream MCP requests.
-
-This keeps tool execution, memory boundaries, and auditing aligned with the human user rather than the Hermes service account.
-
-## Diagnostics
-
-Verify plugin registration and hook wiring:
-
-```bash
-hermes plugins doctor hermes-x-on-behalf
+source["extra_headers"] = identity.principal_headers(principal)
 ```
 
-With `HERMES_X_ON_BEHALF_DEBUG=1`, the plugin logs identity extraction results
-and injected headers at INFO level (prefix `[X-On-Behalf]`), visible in
-`~/.hermes/logs/agent.log`.
+## Konfiguration
 
-## Tests
+**Einzige Quelle:** Abschnitt `x_on_behalf:` in `~/.hermes/config.yaml` (Hermes-Standard, wie `memory.provider:` etc.). Es gibt keine separate Plugin-YAML-Datei. Ein alternativer Pfad ist nur via `HERMES_X_ON_BEHALF_CONFIG` (z. B. für Tests) möglich.
 
-```bash
-python -m unittest discover -s tests -v
+Env-Flags (in `~/.hermes/.env`):
+- `HERMES_X_ON_BEHALF_DEBUG` — Debug-Logging (Principal + Scopes, nie Memory-Inhalte)
+- `HERMES_X_ON_BEHALF_ADAPTER_SECRET` — Shared Secret (Anti-Spoofing, siehe Kernprinzip 5)
+- `MCP_IDENTITY_FALLBACK_USER` — erzeugt `kind=system`-Principals (kein Personal-Memory)
+
+## HTTP-Propagation (Interzeptoren)
+
+`register()` patcht `httpx.AsyncClient.send` und `aiohttp.ClientSession._request`: Jeder ausgehende Request erhält die Header des **aktiven** `PrincipalContext` (`X-On-Behalf-Of`, `X-User-Groups`, `X-Conversation-Id`, `X-Source-Adapter`) — ContextVar-basiert, also auch bei parallelen Requests isoliert. Ohne aktiven Principal werden keine Identity-Header gesetzt; die Header-Ableitung ist fail-soft und lässt Requests niemals scheitern. `system`-Principals propagieren nur ihre `user_id` (keine Gruppen/Conversation), `anonymous` nichts.
+
+## Memory-Routing für Conversations
+
+Team-Memory ist kontextabhängig: Der Default-Scope einer Conversation wird **deterministisch** ermittelt, in dieser Priorität:
+
+1. **Memory-Tag in der Talk-Raum-Beschreibung**: `[memory:team:it-admin]` (auch `[memory:personal]`, `[memory:org]`, Kurzform `[memory:it-admin]`). Skaliert mit neuen Räumen — Raum anlegen, Description taggen, fertig. **Deck-Board-Titel werden bewusst nicht getaggt** (Titel gehören dem User).
+2. **Explizites Mapping** `memory.conversation_scopes` in der `x_on_behalf:`-Sektion — exakte conversation_id (`talk:room:<token>`, `deck:board:<id>`, `deck:board:<id>:card:<id>`) oder Präfix-Match mit Segment-Grenze (`deck:board:3` matcht `deck:board:3:card:44`, aber **nicht** `deck:board:30`). **Das ist der Weg für Deck-Boards**, da Deck über eine konfigurierte Board-Liste verfügt.
+3. **Fallback** `memory.fallback_scope` (Standard: `personal`) — neue ungetaggte Talk-Räume und DMs landen im Personal-Memory.
+
+Sicherheitsgate: Ein deterministisch ermittelter Scope wird nur verwendet, wenn der Principal ihn auch nutzen darf (Gruppenmitgliedschaft). Der Agent kann sich keine Scopes erschließen.
+
+Der gebündelte Skill **`memory-routing`** (automatisch via `ctx.register_skill` registriert) vermittelt dem Agent die Routing-Heuristik: Default-Scope der Conversation, themenbasiertes Umrouten nur innerhalb der erlaubten Scopes, Nachfragen bei Unsicherheit.
+
+## Honcho (optional)
+
+Ist in der YAML `honcho.enabled: true` gesetzt, wrapt das Plugin Hermes' Honcho-Memory-Provider (`hermes.plugins.memory.honcho.provider`) und leitet Workspace/Peer/Session aus dem `PrincipalContext` ab:
+
+| PrincipalContext | Honcho |
+|---|---|
+| `organization` | `workspace_id` |
+| `user_id` | `peer_id` = `user:<id>` |
+| `conversation_id` | `session_id` (`talk:room:<token>` / `deck:board:<id>:card:<id>`) |
+| berechnete Scopes | personal / team / org |
+
+Ohne Honcho (oder wenn Hermes' Provider nicht gefunden wird) läuft alles andere normal — die Integration scheitert weich (fail-soft).
+
+## Memory-Modell
+
 ```
+Honcho Workspace (org)
+├── Peers: user:alice, user:bob, hermes
+└── Sessions: talk:room:42, deck:board:12:card:44
 
-The suite covers context extraction from object- and dict-based session
-sources, fallback-user resolution, and hook registration.
-
-## License
-
-MIT
+Memory-Scopes (serverseitig berechnet):
+  personal:user:alice     → nur alice
+  team:erzieher           → alle Mitglieder der NC-Gruppe "erzieher"
+  org:kiga                → alle interaktiven Nutzer der Instanz
+```

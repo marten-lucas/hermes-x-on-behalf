@@ -1,0 +1,51 @@
+# Hermes X-On-Behalf — Beispielkonfiguration
+# EINZIGE Quelle: Abschnitt `x_on_behalf:` in ~/.hermes/config.yaml
+# (Es gibt keine separate Plugin-Datei mehr.)
+
+x_on_behalf:
+  # Organisations-Ebene (Honcho Workspace / Org-Scope)
+  organization: kiga
+
+  # Semantische Zuordnung der Nextcloud-Gruppen.
+  # WICHTIG: Gruppen sind nicht automatisch Memory-Teams!
+  #   team          → wird zum geteilten Memory-Scope "team:<name>"
+  #   organization  → mappt auf den Org-Scope "org:<organization>"
+  #   permission    → nur Berechtigung, niemals Memory-Scope
+  #   ignore        → wird vollständig ignoriert
+  # Nicht aufgeführte Gruppen gelten automatisch als "ignore".
+  group_mapping:
+    vorstand:       {type: team}
+    kiga-team:      {type: team}
+    elternbeirat:   {type: team}
+    it-admin:       {type: team}      # technisches Team-Memory
+    extern:         {type: ignore}
+    ki-assistent:   {type: ignore}
+
+  # Welche Memory-Ebenen aktiv sind
+  memory:
+    personal: true      # personal:user:<id> (nur für interaktive Requests)
+    teams: true         # team:<name>
+    organization: true  # org:<organization>
+
+    # Explizite Conversation→Scope-Zuordnung (Priorität NACH Memory-Tags).
+    # Exakter Match oder Präfix mit Segment-Grenze: "deck:board:3" matcht
+    # "deck:board:3:card:44", aber NICHT "deck:board:30".
+    # DECK: Das ist der normale Weg — Boards stehen ohnehin in einer
+    # konfigurierten Liste. Board-Titel werden NICHT für Memory-Tags geparst.
+    # TALK: Für neue Räume lieber [memory:team:...] in die Raum-Beschreibung
+    # schreiben — dann ist keine Konfig nötig.
+    # HINWEIS: Der eingebaute Fallback-Parser (ohne PyYAML) unterstützt nur
+    # verschachtelte Mappings/Skalare — keine YAML-Listen in dieser Sektion.
+    conversation_scopes:
+      "deck:board:3":        team:it-admin    # Technik-Board
+      "deck:board:5":        team:vorstand    # Orga-Board
+      "talk:room:abc123def": team:vorstand    # optional, Tag bevorzugt
+
+    # Scope für nicht getaggte/zugeordnete Conversations (z. B. neue DMs)
+    fallback_scope: personal
+
+  # Optionale Honcho-Integration (wrapt Hermes' Honcho-Memory-Provider).
+  # Honcho-Nutzung bleibt optional — false = Plugin funktioniert ohne Honcho.
+  honcho:
+    enabled: false
+    # workspace_id: kiga   # default: organization
