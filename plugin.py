@@ -108,6 +108,80 @@ def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str
     return (principal.user_id, ",".join(principal.groups) if principal.groups else None)
 
 
+def on_agent_start(ctx: Any = None, **kwargs: Any) -> None:
+    """Hook (agent:start): Principal für die gesamte Turn-Ausführung setzen.
+
+    Der Gateway führt Agent-Turns in einem Executor mit ``copy_context()``
+    aus — die Kontextkopie entsteht beim Task-Spawn. Adapter, die ihren
+    Principal in einem eigenen Task öffnen (z. B. Deck-Polling), kommen
+    deshalb zu spät. Dieser Hook läuft IN der Turn-Ausführung und setzt
+    den Principal hier aus der Session-Source — damit sehen alle
+    pre_tool_call-Hooks und Interzeptoren die korrekte Identity.
+
+    Wichtig: Nur setzen, wenn der ContextVar noch LEER ist — sonst würden
+    wir den (strengeren) Adapter-Principal mit schwächeren Hook-Daten
+    überschreiben. Talk setzt synchron im Dispatch-Pfad; Deck braucht
+    diesen Hook.
+    """
+    if get_principal() is not None:
+        _log("agent:start: principal bereits gesetzt — Hook überspringt.")
+        return
+
+    # hook_ctx ist ein flaches Dict: user_id/chat_id/chat_type/message
+    if not isinstance(ctx, dict):
+        return
+    user_id = str(ctx.get("user_id") or "").strip()
+    if not user_id or user_id.lower() in {"system", "changelog", "sample"}:
+        return
+
+    cfg = load_config()
+    conversation_id = str(ctx.get("chat_id") or "").strip() or None
+    chat_type = str(ctx.get("chat_type") or "").strip()
+
+    # conversation_id nur für Gruppen-/Team-Kontexte setzen — 1:1-DMs ohne
+    # conversation_id lassen das Memory-Routing auf fallback_scope gehen.
+    # Deck-Karten (chat_type deck_card) tragen die Board-Card-ID; das Prefix-
+    # Match in scopes.py findet das konfigurierte Team-Scope-Mapping.
+    if chat_type in ("dm", ""):
+        conversation_id = None
+
+    principal = PrincipalContext.interactive(
+        user_id=user_id,
+        groups=(),  # Gruppen liegen im hook_ctx nicht vor; Scope-Routing über
+        # conversation_scopes bzw. fallback — keine Memory-Scopes aus Headers.
+        organization=cfg.organization,
+        conversation_id=conversation_id,
+        channel=str(ctx.get("platform") or "") or None,
+    )
+    token = current_principal.set(principal)
+    _turn_tokens.append(token)
+    _log("agent:start principal=%s (turn-scoped)", principal.user_id)
+
+
+# Token-Stack für turn-scoped Principals (pro Turn gesetzt, beim agent:end
+# wieder entfernt — FIFO je Turn; agent:start/agent:end paaren 1:1).
+_turn_tokens: list = []
+
+
+def on_agent_end(**kwargs: Any) -> None:
+    """Hook (agent:end): Turn-Principal zurücksetzen (Token-Reset)."""
+    if _turn_tokens:
+        token = _turn_tokens.pop()
+        try:
+            current_principal.reset(token)
+        except Exception:
+            pass
+
+
+def _source_ctx(source: Any) -> Any:
+    """Wrappt eine SessionSource so, dass build_principal_from_context sie liest.
+    build_principal_from_context erwartet ctx mit session_source/source-Attribut
+    oder dict — ein 1-Element-Container genügt."""
+    if source is None:
+        return None
+    return {"session_source": source}
+
+
 def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> Any:
     """Hook: derive headers for the active principal on outbound tool requests.
 
@@ -167,6 +241,10 @@ def register(ctx: Any) -> None:
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", on_pre_tool_call)
         logger.info("[X-On-Behalf] Registered 'pre_tool_call'.")
+        ctx.register_hook("agent:start", on_agent_start)
+        logger.info("[X-On-Behalf] Registered 'agent:start' (turn-scoped principal).")
+        ctx.register_hook("agent:end", on_agent_end)
+        logger.info("[X-On-Behalf] Registered 'agent:end'.")
 
     if hasattr(ctx, "register_middleware"):
         ctx.register_middleware("tool_request", on_pre_tool_call)
