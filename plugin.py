@@ -108,69 +108,41 @@ def extract_identity_from_context(ctx: Any) -> tuple[Optional[str], Optional[str
     return (principal.user_id, ",".join(principal.groups) if principal.groups else None)
 
 
-def on_agent_start(ctx: Any = None, **kwargs: Any) -> None:
-    """Hook (agent:start): Principal für die gesamte Turn-Ausführung setzen.
+def on_pre_gateway_dispatch(event: Any = None, **kwargs: Any) -> Optional[dict]:
+    """Hook (pre_gateway_dispatch): Principal für den gesamten Dispatch setzen.
 
-    Der Gateway führt Agent-Turns in einem Executor mit ``copy_context()``
-    aus — die Kontextkopie entsteht beim Task-Spawn. Adapter, die ihren
-    Principal in einem eigenen Task öffnen (z. B. Deck-Polling), kommen
-    deshalb zu spät. Dieser Hook läuft IN der Turn-Ausführung und setzt
-    den Principal hier aus der Session-Source — damit sehen alle
-    pre_tool_call-Hooks und Interzeptoren die korrekte Identity.
+    Dieser Hook läuft im Gateway-Dispatch-Task, BEVOR der Agent-Turn als
+    Task gespawnt wird. ``create_task()`` kopiert die ContextVars des
+    laufenden Dispatch-Kontexts — ein hier gesetzter Principal wird damit
+    in die Turn-Ausführung vererbt (Executor nutzt ebenfalls eine Kopie
+    dieses Kontexts).
 
-    Wichtig: Nur setzen, wenn der ContextVar noch LEER ist — sonst würden
-    wir den (strengeren) Adapter-Principal mit schwächeren Hook-Daten
-    überschreiben. Talk setzt synchron im Dispatch-Pfad; Deck braucht
-    diesen Hook.
+    Deck-Adapter öffnen ihren Principal in ihrem Polling-Task — der kommt
+    für die Turn-Kopie zu spät. Talk setzt synchron im Dispatch-Pfad und
+    ist damit bereits hier aktiv; wir überschreiben nur einen LEEREN
+    ContextVar.
+
+    Rückgabe None/„allow“ → Dispatch läuft normal weiter.
     """
     if get_principal() is not None:
-        _log("agent:start: principal bereits gesetzt — Hook überspringt.")
-        return
+        return None
 
-    # hook_ctx ist ein flaches Dict: user_id/chat_id/chat_type/message
-    if not isinstance(ctx, dict):
-        return
-    user_id = str(ctx.get("user_id") or "").strip()
-    if not user_id or user_id.lower() in {"system", "changelog", "sample"}:
-        return
+    source = None
+    if isinstance(event, dict):
+        source = event.get("source")
+    else:
+        source = getattr(event, "source", None)
 
-    cfg = load_config()
-    conversation_id = str(ctx.get("chat_id") or "").strip() or None
-    chat_type = str(ctx.get("chat_type") or "").strip()
+    principal = build_principal_from_context({"session_source": source} if source is not None else None)
+    if principal is None or not principal.has_identity:
+        return None
 
-    # conversation_id nur für Gruppen-/Team-Kontexte setzen — 1:1-DMs ohne
-    # conversation_id lassen das Memory-Routing auf fallback_scope gehen.
-    # Deck-Karten (chat_type deck_card) tragen die Board-Card-ID; das Prefix-
-    # Match in scopes.py findet das konfigurierte Team-Scope-Mapping.
-    if chat_type in ("dm", ""):
-        conversation_id = None
-
-    principal = PrincipalContext.interactive(
-        user_id=user_id,
-        groups=(),  # Gruppen liegen im hook_ctx nicht vor; Scope-Routing über
-        # conversation_scopes bzw. fallback — keine Memory-Scopes aus Headers.
-        organization=cfg.organization,
-        conversation_id=conversation_id,
-        channel=str(ctx.get("platform") or "") or None,
-    )
     token = current_principal.set(principal)
-    _turn_tokens.append(token)
-    _log("agent:start principal=%s (turn-scoped)", principal.user_id)
-
-
-# Token-Stack für turn-scoped Principals (pro Turn gesetzt, beim agent:end
-# wieder entfernt — FIFO je Turn; agent:start/agent:end paaren 1:1).
-_turn_tokens: list = []
-
-
-def on_agent_end(**kwargs: Any) -> None:
-    """Hook (agent:end): Turn-Principal zurücksetzen (Token-Reset)."""
-    if _turn_tokens:
-        token = _turn_tokens.pop()
-        try:
-            current_principal.reset(token)
-        except Exception:
-            pass
+    _log("pre_gateway_dispatch principal=%s (dispatch-scoped)", principal.user_id)
+    # Kein Reset nötig: Der ContextVar-Token lebt im Dispatch-Task, der
+    # nach dem Turn ohnehin endet. create_task-Kopien tragen den Principal
+    # nur in die jeweilige Turn-Task.
+    return None
 
 
 def _source_ctx(source: Any) -> Any:
@@ -241,10 +213,8 @@ def register(ctx: Any) -> None:
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", on_pre_tool_call)
         logger.info("[X-On-Behalf] Registered 'pre_tool_call'.")
-        ctx.register_hook("agent:start", on_agent_start)
-        logger.info("[X-On-Behalf] Registered 'agent:start' (turn-scoped principal).")
-        ctx.register_hook("agent:end", on_agent_end)
-        logger.info("[X-On-Behalf] Registered 'agent:end'.")
+        ctx.register_hook("pre_gateway_dispatch", on_pre_gateway_dispatch)
+        logger.info("[X-On-Behalf] Registered 'pre_gateway_dispatch' (dispatch-scoped principal).")
 
     if hasattr(ctx, "register_middleware"):
         ctx.register_middleware("tool_request", on_pre_tool_call)
