@@ -33,24 +33,38 @@ def _get_active_headers() -> dict[str, str]:
         return {}
 
 
-def _patch_httpx() -> None:
+def _patch_httpx_module(module_name: str) -> None:
+    """Patch ``AsyncClient.send`` in one httpx-family module.
+
+    Hermes' MCP client uses ``httpx2`` (MCP SDK 2.0) while other adapters may
+    use ``httpx`` — both expose the same ``AsyncClient.send`` signature, so we
+    patch whichever module is importable (and used by the transport).
+    """
     try:
-        import httpx
-
-        original_send = httpx.AsyncClient.send
-
-        async def patched_send(
-            self: httpx.AsyncClient, request: httpx.Request, *args: Any, **kwargs: Any
-        ) -> httpx.Response:
-            active_headers = _get_active_headers()
-            for k, v in active_headers.items():
-                request.headers[k] = v
-            return await original_send(self, request, *args, **kwargs)
-
-        httpx.AsyncClient.send = patched_send  # type: ignore[assignment]
-        logger.debug("[X-On-Behalf] httpx.AsyncClient.send erfolgreich gepatcht.")
+        httpx_mod = __import__(module_name)
     except ImportError:
-        logger.debug("[X-On-Behalf] httpx nicht installiert, Patch übersprungen.")
+        logger.debug("[X-On-Behalf] %s nicht installiert, Patch übersprungen.", module_name)
+        return
+
+    original_send = httpx_mod.AsyncClient.send
+
+    async def patched_send(
+        self: Any, request: Any, *args: Any, **kwargs: Any
+    ) -> Any:
+        active_headers = _get_active_headers()
+        for k, v in active_headers.items():
+            request.headers[k] = v
+        return await original_send(self, request, *args, **kwargs)
+
+    httpx_mod.AsyncClient.send = patched_send  # type: ignore[assignment]
+    logger.debug("[X-On-Behalf] %s.AsyncClient.send erfolgreich gepatcht.", module_name)
+
+
+def _patch_httpx() -> None:
+    # Both plain "httpx" and the newer "httpx2" (used by MCP SDK 2.0) —
+    # patch whichever resolves so identity headers reach MCP transports.
+    for name in ("httpx", "httpx2"):
+        _patch_httpx_module(name)
 
 
 def _patch_aiohttp() -> None:
