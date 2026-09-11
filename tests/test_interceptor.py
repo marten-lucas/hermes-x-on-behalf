@@ -90,6 +90,26 @@ class ActiveHeaderTests(unittest.TestCase):
         with principal_context(PrincipalContext.anonymous()):
             self.assertEqual({}, _get_active_headers())
 
+    def test_no_principal_uses_service_identity(self):
+        # Ohne aktiven Principal liefert der Interceptor die konfigurierte
+        # Service-Identity (ki-assistent + it-admin) für Agentgateway-RBAC.
+        reset_config_cache()
+        os.environ["MCP_IDENTITY_SERVICE_USER"] = "ki-assistent"
+        os.environ["MCP_IDENTITY_SERVICE_GROUPS"] = "it-admin,vorstand"
+        try:
+            headers = _get_active_headers()
+        finally:
+            os.environ.pop("MCP_IDENTITY_SERVICE_USER", None)
+            os.environ.pop("MCP_IDENTITY_SERVICE_GROUPS", None)
+            reset_config_cache()
+        self.assertEqual("ki-assistent", headers["X-On-Behalf-Of"])
+        self.assertEqual("it-admin,vorstand", headers["X-User-Groups"])
+
+    def test_no_principal_no_service_identity(self):
+        reset_config_cache()
+        # Keine Service-Identity konfiguriert → keine Header.
+        self.assertEqual({}, _get_active_headers())
+
 
 class HttpxInterceptorTests(unittest.TestCase):
     def test_patched_send_injects_headers(self):

@@ -51,7 +51,11 @@ def build_principal_from_context(ctx: Any) -> PrincipalContext:
     cfg = load_config()
 
     if ctx is None:
-        # System request (cron/background): strict kind=system, no personal memory
+        # System request (cron/background/Gateway-Start): kind=system, no personal/team memory.
+        # Service-Identity (z. B. ki-assistent + it-admin) bekommt Vorrang —
+        # sie trägt RBAC-Gruppen für Agentgateway, aber niemals Memory-Zugriff.
+        if cfg.service_user:
+            return PrincipalContext.system(cfg.service_user, groups=cfg.service_groups)
         if cfg.fallback_user:
             return PrincipalContext.system(cfg.fallback_user)
         return PrincipalContext.anonymous()

@@ -5,7 +5,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,14 @@ class PluginConfig:
     honcho: HonchoConfig = field(default_factory=HonchoConfig)
     adapter_secret: Optional[str] = None  # from env only, never from YAML
     debug: bool = False
-    fallback_user: Optional[str] = None  # from env only
+    fallback_user: Optional[str] = None  # from env only (legacy cron fallback)
+    # Service-Identity: technischer Default-Principal (z. B. ki-assistent) mit
+    # RBAC-Gruppen (z. B. it-admin). Wird als Fallback verwendet, wenn kein
+    # interaktiver Principal aktiv ist (Gateway-Start, MCP-Discovery, Cron) —
+    # so sieht Agentgateway die volle Tool-Sicht, ohne dass ein echtes
+    # User-Login nötig ist.
+    service_user: Optional[str] = None   # from YAML service_identity.user or env
+    service_groups: Tuple[str, ...] = ()  # normalized lowercase
 
 
 _config: Optional[PluginConfig] = None
@@ -109,6 +116,18 @@ def _apply_mapping_section(data: Dict[str, Any], cfg: PluginConfig) -> None:
         cfg.honcho = HonchoConfig(
             enabled=bool(honcho.get("enabled", False)),
             workspace_id=honcho.get("workspace_id") or None,
+        )
+
+    svc = data.get("service_identity") or {}
+    if isinstance(svc, dict):
+        user = str(svc.get("user") or "").strip()
+        if user:
+            cfg.service_user = user
+        groups = svc.get("groups") or []
+        if isinstance(groups, str):
+            groups = [groups]
+        cfg.service_groups = tuple(
+            str(g).strip().lower() for g in groups if str(g).strip()
         )
 
 
@@ -238,6 +257,15 @@ def load_config(force_reload: bool = False) -> PluginConfig:
     cfg.debug = os.getenv("HERMES_X_ON_BEHALF_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
     cfg.fallback_user = os.getenv("MCP_IDENTITY_FALLBACK_USER", "").strip() or None
     cfg.adapter_secret = os.getenv("HERMES_X_ON_BEHALF_ADAPTER_SECRET", "").strip() or None
+    # Service-Identity env overrides (kommagetrennte Gruppen)
+    svc_user = os.getenv("MCP_IDENTITY_SERVICE_USER", "").strip()
+    if svc_user:
+        cfg.service_user = svc_user
+    svc_groups = os.getenv("MCP_IDENTITY_SERVICE_GROUPS", "").strip()
+    if svc_groups:
+        cfg.service_groups = tuple(
+            g.strip().lower() for g in svc_groups.split(",") if g.strip()
+        )
 
     _config = cfg
     return cfg

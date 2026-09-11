@@ -22,11 +22,30 @@ def apply_http_interceptors() -> None:
 
 def _get_active_headers() -> dict[str, str]:
     """Headers des aktiven PrincipalContext (X-On-Behalf-Of, X-User-Groups,
-    X-Conversation-Id, X-Source-Adapter). Leer, wenn kein Principal aktiv."""
-    from .headers import current_headers
+    X-Conversation-Id, X-Source-Adapter).
+
+    Ist KEIN Principal aktiv (Gateway-Start, MCP-Discovery, Cron), wird die
+    konfigurierte Service-Identity als Default gesetzt — so sieht Agentgateway
+    beim initialen tools/list die volle Tool-Sicht (z. B. ki-assistent mit
+    Gruppe it-admin). Ein explizit gesetzter Principal (auch anonymous) hat
+    IMMER Vorrang und wird nicht eskaliert.
+    """
+    from .config import load_config
+    from .context import get_principal
+    from .headers import current_headers, principal_to_headers
+    from .principal import PrincipalContext
 
     try:
-        return current_headers()
+        principal = get_principal()
+        if principal is not None:
+            # interactive/system/anonymous → unverändert (bei anonymous leer)
+            return current_headers()
+        cfg = load_config()
+        if cfg.service_user:
+            return principal_to_headers(
+                PrincipalContext.system(cfg.service_user, groups=cfg.service_groups)
+            )
+        return {}
     except Exception:
         # Header-Injektion darf einen Request niemals zum Scheitern bringen
         logger.debug("[X-On-Behalf] Header-Ableitung fehlgeschlagen — Request ohne Identity-Header.", exc_info=True)

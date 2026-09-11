@@ -22,6 +22,14 @@ optional_env:
     description: "Fallback user ID for system requests (cron/background). Produces kind=system principals without personal/team memory access."
     prompt: "Fallback User ID (system)"
     password: false
+  - name: MCP_IDENTITY_SERVICE_USER
+    description: "Default service identity (e.g. ki-assistent) used when no interactive principal is active (gateway start, MCP discovery). Carries RBAC groups for Agentgateway but no memory access."
+    prompt: "Service Identity User"
+    password: false
+  - name: MCP_IDENTITY_SERVICE_GROUPS
+    description: "Comma-separated groups for the service identity (e.g. it-admin). Injected as X-User-Groups on non-interactive requests."
+    prompt: "Service Identity Groups"
+    password: false
   - name: HERMES_X_ON_BEHALF_ADAPTER_SECRET
     description: "Shared secret between adapters and Hermes. When set, incoming X-Adapter-Secret headers are validated (anti-spoofing)."
     prompt: "Adapter Shared Secret"

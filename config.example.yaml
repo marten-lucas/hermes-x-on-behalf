@@ -6,6 +6,17 @@ x_on_behalf:
   # Organisations-Ebene (Honcho Workspace / Org-Scope)
   organization: kiga
 
+  # Service-Identity: technischer Default-Principal für nicht-interaktive
+  # Requests (Gateway-Start, MCP-Discovery, Cron). Er sieht die volle
+  # Agentgateway-Tool-Sicht via RBAC-Gruppen, hat aber KEIN Memory-Zugriff.
+  # Optional — kann auch als Env gesetzt werden:
+  #   MCP_IDENTITY_SERVICE_USER=ki-assistent
+  #   MCP_IDENTITY_SERVICE_GROUPS=it-admin
+  service_identity:
+    user: ki-assistent
+    groups:
+      - it-admin
+
   # Semantische Zuordnung der Nextcloud-Gruppen.
   # WICHTIG: Gruppen sind nicht automatisch Memory-Teams!
   #   team          → wird zum geteilten Memory-Scope "team:<name>"

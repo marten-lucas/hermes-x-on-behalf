@@ -45,6 +45,23 @@ Env-Flags (in `~/.hermes/.env`):
 - `HERMES_X_ON_BEHALF_DEBUG` — Debug-Logging (Principal + Scopes, nie Memory-Inhalte)
 - `HERMES_X_ON_BEHALF_ADAPTER_SECRET` — Shared Secret (Anti-Spoofing, siehe Kernprinzip 5)
 - `MCP_IDENTITY_FALLBACK_USER` — erzeugt `kind=system`-Principals (kein Personal-Memory)
+- `MCP_IDENTITY_SERVICE_USER` — Service-Identity-User (Default z. B. `ki-assistent`)
+- `MCP_IDENTITY_SERVICE_GROUPS` — kommagetrennte RBAC-Gruppen (Default z. B. `it-admin`)
+
+## Service-Identity (Nicht-interaktive Requests)
+
+Beim Gateway-Start und der MCP-Discovery ist noch kein interaktiver Principal aktiv — der HTTP-Interceptor würde ohne Gegenmaßnahme kein `X-User-Groups` setzen, und Agentgateway würde die Tool-Sicht auf einen leeren/kleinen Katalog filtern. Dafür gibt es eine **Service-Identity**:
+
+```yaml
+# ~/.hermes/config.yaml → x_on_behalf:
+service_identity:
+  user: ki-assistent
+  groups:
+    - it-admin
+```
+
+Alternativ als Env: `MCP_IDENTITY_SERVICE_USER`, `MCP_IDENTITY_SERVICE_GROUPS` (kommagetrennt). Der daraus gebaute `system`-Principal trägt die RBAC-Gruppen (für Agentgateway-Sichtbarkeit), hat aber **niemals** Personal-/Team-Memory-Zugriff. Ein explizit gesetzter Principal (auch `anonymous`) hat immer Vorrang und wird nie eskaliert.
+
 
 ## HTTP-Propagation (Interzeptoren)
 

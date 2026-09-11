@@ -73,11 +73,15 @@ class PrincipalContext:
         )
 
     @classmethod
-    def system(cls, user_id: Optional[str] = None) -> "PrincipalContext":
-        """Build a system principal (cron, background job). Never personal memory."""
+    def system(cls, user_id: Optional[str] = None, groups=()) -> "PrincipalContext":
+        """Build a system principal (cron, background job, service identity).
+
+        Never grants personal/team memory access, but may carry RBAC groups
+        (e.g. it-admin) for downstream gateways like Agentgateway.
+        """
         return cls(
             user_id=cls.normalize_user(user_id),
-            groups=(),
+            groups=cls.normalize_groups(groups),
             kind=PrincipalKind.SYSTEM,
         )
 
