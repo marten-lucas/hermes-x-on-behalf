@@ -165,7 +165,7 @@ def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> An
     a header in tool arguments is never trusted as a source, only overwritten.
     """
     principal = get_principal()
-    _log("pre_tool_call tool='%s' principal=%s", tool_name, principal.user_id if principal else None)
+    _log("pre_tool_call tool='%s' principal=%s groups=%s", tool_name, principal.user_id if principal else None, principal.groups if principal else ())
 
     headers = principal_to_headers(principal)
     if not headers:
