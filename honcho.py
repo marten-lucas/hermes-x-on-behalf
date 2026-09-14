@@ -71,36 +71,65 @@ def patch_honcho_provider() -> bool:
         return False
 
     try:
-        # Hermes ships its honcho memory provider under plugins/memory/honcho;
-        # we patch its peer/session resolution defensively.
-        from hermes.plugins.memory.honcho import provider as honcho_provider  # type: ignore[import-not-found]
+        # Hermes' Honcho-Stack: HonchoSessionManager (Mixin session_peers)
+        # resolved die User-Peer-ID via _resolve_user_peer_id(key). Ältere
+        # Hermes-Versionenexponierten einen module-level resolve_peer — wir
+        # unterstützen beide Schnittstellen defensiv.
+        from plugins.memory.honcho.session import HonchoSessionManager  # type: ignore[import-not-found]
+
+        if getattr(HonchoSessionManager, "_xonbehalf_patched", False):
+            return True
+
+        original_resolve = HonchoSessionManager._resolve_user_peer_id
+
+        def resolve_with_principal(self: Any, key: str) -> str:
+            target = resolve_honcho_target()
+            if target is not None:
+                return target.peer_id
+            return original_resolve(self, key)
+
+        resolve_with_principal._xonbehalf_original = original_resolve  # type: ignore[attr-defined]
+        HonchoSessionManager._resolve_user_peer_id = resolve_with_principal  # type: ignore[assignment]
+        HonchoSessionManager._xonbehalf_patched = True  # type: ignore[attr-defined]
+        logger.info(
+            "[X-On-Behalf] Hermes-Honcho-Provider gepatcht (Principal-basierte Peer-Auflösung über HonchoSessionManager)."
+        )
+        return True
     except Exception as exc:
         logger.warning(
-            "[X-On-Behalf] Hermes-Honcho-Provider nicht gefunden — Honcho-Anbindung übersprungen. "
+            "[X-On-Behalf] Hermes-Honcho-SessionManager nicht patchbar — "
             "Prüfe die Provider-Schnittstelle nach einem Hermes-Update. (%s)",
             exc,
         )
-        return False
 
-    if getattr(honcho_provider, "_xonbehalf_patched", False):
+    # Legacy-Fallback: module-level resolve_peer (ältere Hermes-Versionen)
+    try:
+        from plugins.memory.honcho import HonchoMemoryProvider as honcho_provider  # type: ignore[import-not-found]
+
+        if getattr(honcho_provider, "_xonbehalf_patched", False):
+            return True
+
+        original_resolve = getattr(honcho_provider, "resolve_peer", None)
+        if original_resolve is None:
+            logger.warning(
+                "[X-On-Behalf] Hermes-Honcho-Provider hat keine 'resolve_peer'-Methode — "
+                "Schnittstelle hat sich möglicherweise geändert, Patch übersprungen."
+            )
+            return False
+
+        def resolve_peer_with_principal(*args: Any, **kwargs: Any) -> Any:
+            target = resolve_honcho_target()
+            if target is not None:
+                return target.peer_id
+            return original_resolve(*args, **kwargs)
+
+        resolve_peer_with_principal._xonbehalf_original = original_resolve  # type: ignore[attr-defined]
+        honcho_provider.resolve_peer = resolve_peer_with_principal  # type: ignore[assignment]
+        honcho_provider._xonbehalf_patched = True  # type: ignore[attr-defined]
+        logger.info("[X-On-Behalf] Hermes-Honcho-Provider gepatcht (Legacy resolve_peer).")
         return True
-
-    original_resolve = getattr(honcho_provider, "resolve_peer", None)
-    if original_resolve is None:
+    except Exception as exc:
         logger.warning(
-            "[X-On-Behalf] Hermes-Honcho-Provider hat keine 'resolve_peer'-Methode — "
-            "Schnittstelle hat sich möglicherweise geändert, Patch übersprungen."
+            "[X-On-Behalf] Honcho-Provider-Patch vollständig fehlgeschlagen: %s", exc
         )
         return False
-
-    def resolve_peer_with_principal(*args: Any, **kwargs: Any) -> Any:
-        target = resolve_honcho_target()
-        if target is not None:
-            return target.peer_id
-        return original_resolve(*args, **kwargs)
-
-    resolve_peer_with_principal._xonbehalf_original = original_resolve  # type: ignore[attr-defined]
-    honcho_provider.resolve_peer = resolve_peer_with_principal  # type: ignore[assignment]
-    honcho_provider._xonbehalf_patched = True  # type: ignore[attr-defined]
-    logger.info("[X-On-Behalf] Hermes-Honcho-Provider gepatcht (Principal-basierte Peer-Auflösung).")
-    return True
