@@ -149,15 +149,6 @@ def on_pre_gateway_dispatch(event: Any = None, **kwargs: Any) -> Optional[dict]:
     return None
 
 
-def _source_ctx(source: Any) -> Any:
-    """Wrappt eine SessionSource so, dass build_principal_from_context sie liest.
-    build_principal_from_context erwartet ctx mit session_source/source-Attribut
-    oder dict — ein 1-Element-Container genügt."""
-    if source is None:
-        return None
-    return {"session_source": source}
-
-
 def on_pre_tool_call(tool_name: str = "", args: Any = None, **kwargs: Any) -> Any:
     """Hook: derive headers for the active principal on outbound tool requests.
 

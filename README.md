@@ -29,12 +29,14 @@ hermes-x-on-behalf/
 ## Verwendung in Adaptern
 
 ```python
-principal = identity.build_principal(user_id, groups, room_id=room_id, is_group_chat=True)
+from hermes_x_on_behalf import PrincipalContext, principal_context, principal_to_headers
+
+principal = PrincipalContext.interactive(user_id, groups, conversation_id=room_id)
 if principal is not None:
-    with identity.principal_context(principal):
+    with principal_context(principal):
         await self.handle_message(event)
 
-source["extra_headers"] = identity.principal_headers(principal)
+source["extra_headers"] = principal_to_headers(principal)
 ```
 
 ## Konfiguration

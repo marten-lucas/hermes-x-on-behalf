@@ -12,7 +12,6 @@ description: >
 author: Local Development
 provides_hooks:
   - pre_tool_call
-config_file: ~/.hermes/x-on-behalf.yaml
 optional_env:
   - name: HERMES_X_ON_BEHALF_DEBUG
     description: "Set to 1 or true for verbose debug logging (principal + scopes, never memory contents)"
@@ -35,6 +34,6 @@ optional_env:
     prompt: "Adapter Shared Secret"
     password: true
   - name: HERMES_X_ON_BEHALF_CONFIG
-    description: "Custom path to the YAML config file (default: ~/.hermes/x-on-behalf.yaml)"
+    description: "Custom path to the YAML config file (default: ~/.hermes/config.yaml, section x_on_behalf:)"
     prompt: "Config File Path"
     password: false
