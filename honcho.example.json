@@ -1,0 +1,12 @@
+{
+  "workspace": "kiga",
+  "baseUrl": "https://honcho.cloud.kiga-gramschatz.de",
+  "peerName": "marten",
+  "aiPeer": "hermes",
+  "runtimePeerPrefix": "user_",
+  "recallMode": "hybrid",
+  "sessionStrategy": "per-directory",
+  "writeFrequency": "async",
+  "saveMessages": true,
+  "enabled": true
+}

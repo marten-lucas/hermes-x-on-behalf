@@ -64,6 +64,16 @@ service_identity:
 Alternativ als Env: `MCP_IDENTITY_SERVICE_USER`, `MCP_IDENTITY_SERVICE_GROUPS` (kommagetrennt). Der daraus gebaute `system`-Principal trägt die RBAC-Gruppen (für Agentgateway-Sichtbarkeit), hat aber **niemals** Personal-/Team-Memory-Zugriff. Ein explizit gesetzter Principal (auch `anonymous`) hat immer Vorrang und wird nie eskaliert.
 
 
+## Honcho-Integration (nativer Provider)
+
+Das Plugin patcht Hermes' Honcho-Provider **nicht mehr** (bis v1.0 wrappte `honcho.py` die Peer-Auflösung mit `PrincipalContext → user:<id>`). Seit Hermes v0.21.4 löst Hermes Honcho-Peers **nativ** über `honcho.json` auf (`peerName` / `userPeerAliases` / `runtimePeerPrefix`). Eine Beispielkonfiguration liegt unter `honcho.example.json`.
+
+Wichtig beim Umstieg:
+- Peer-IDs sind auf `[a-zA-Z0-9_-]+` begrenzt — der frühere `user:`-Prefix (mit Doppelpunkt) wird zu `user_` (Bindestrich/Unterstrich statt `:`).
+- Ohne `peerName` **oder** eine Runtime-Identität wirft Hermes jetzt `HonchoPeerUnresolvedError` (früher stiller `user-default-<dir>`-Fallback).
+- Workspace/Session steuert jetzt allein `honcho.json` (`workspace`, Session-Key-Priorität), nicht mehr das Plugin.
+
+
 ## HTTP-Propagation (Interzeptoren)
 
 `register()` patcht `httpx.AsyncClient.send` und `aiohttp.ClientSession._request`: Jeder ausgehende Request erhält die Header des **aktiven** `PrincipalContext` (`X-On-Behalf-Of`, `X-User-Groups`, `X-Conversation-Id`, `X-Source-Adapter`) — ContextVar-basiert, also auch bei parallelen Requests isoliert. Ohne aktiven Principal werden keine Identity-Header gesetzt; die Header-Ableitung ist fail-soft und lässt Requests niemals scheitern. `system`-Principals propagieren nur ihre `user_id` (keine Gruppen/Conversation), `anonymous` nichts.
