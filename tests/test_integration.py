@@ -60,8 +60,6 @@ x_on_behalf:
       "deck:board:3": team:it-admin
       "deck:board:5": team:vorstand
     fallback_scope: personal
-  honcho:
-    enabled: false
 """
 
 
@@ -94,11 +92,6 @@ class ConfigSourceIntegrationTests(unittest.TestCase):
             cfg.memory.conversation_scopes,
         )
         self.assertEqual("personal", cfg.memory.fallback_scope)
-
-    def test_honcho_disabled_by_default_in_section(self):
-        cfg = xob_config.load_config(force_reload=True)
-        self.assertFalse(cfg.honcho.enabled)
-
 
 class TalkDeckRoutingIntegrationTests(unittest.TestCase):
     """End-to-end: adapter-style principal → scope resolution → headers."""

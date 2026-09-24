@@ -3,7 +3,7 @@
 # (Es gibt keine separate Plugin-Datei mehr.)
 
 x_on_behalf:
-  # Organisations-Ebene (Honcho Workspace / Org-Scope)
+  # Organisations-Ebene (Org-Memory-Scope)
   organization: kiga
 
   # Service-Identity: technischer Default-Principal für nicht-interaktive
@@ -54,9 +54,3 @@ x_on_behalf:
 
     # Scope für nicht getaggte/zugeordnete Conversations (z. B. neue DMs)
     fallback_scope: personal
-
-  # Optionale Honcho-Integration (wrapt Hermes' Honcho-Memory-Provider).
-  # Honcho-Nutzung bleibt optional — false = Plugin funktioniert ohne Honcho.
-  honcho:
-    enabled: false
-    # workspace_id: kiga   # default: organization

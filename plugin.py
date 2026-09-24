@@ -188,22 +188,12 @@ def register(ctx: Any) -> None:
     """Register Hermes lifecycle hooks and activate HTTP interceptors."""
     cfg = load_config()
     logger.info(
-        "[X-On-Behalf] Registriere Identity-Hooks (organization=%s, honcho=%s, secret_check=%s)...",
+        "[X-On-Behalf] Registriere Identity-Hooks (organization=%s, secret_check=%s)...",
         cfg.organization or "-",
-        cfg.honcho.enabled,
         bool(cfg.adapter_secret),
     )
 
     apply_http_interceptors()
-
-    # Optional Honcho integration (fails soft — Honcho usage is optional)
-    if cfg.honcho.enabled:
-        from .honcho import patch_honcho_provider
-
-        try:
-            patch_honcho_provider()
-        except Exception as exc:
-            logger.warning("[X-On-Behalf] Honcho-Provider-Patch fehlgeschlagen: %s", exc)
 
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("pre_tool_call", on_pre_tool_call)

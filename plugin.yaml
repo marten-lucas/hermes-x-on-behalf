@@ -1,14 +1,12 @@
 name: hermes-x-on-behalf
 label: Hermes X-On-Behalf Principal Context
 kind: standalone
-version: 1.0.0
+version: 1.1.0
 description: >
   Identity / Principal-Context propagation layer. Resolves the human principal
   (user, groups, conversation, channel) from platform adapters, computes memory
   scopes server-side (configurable group mapping), and propagates identity via
   contextvars and HTTP headers (httpx/aiohttp) to MCP tools and gateways.
-  Optional Honcho integration wraps Hermes' Honcho memory provider
-  (workspace/peer/session from PrincipalContext); Honcho usage is optional.
 author: Local Development
 provides_hooks:
   - pre_tool_call

@@ -1,4 +1,4 @@
-# Hermes X-On-Behalf Plugin (v1.0)
+# Hermes X-On-Behalf Plugin (v1.1)
 
 Identity / **Principal-Context-Propagation**-Plugin für Hermes Agent. Es löst den menschlichen Principal (User, Gruppen, Conversation, Channel) aus den Plattform-Adaptern (Nextcloud Talk, Nextcloud Deck) auf, berechnet daraus **serverseitig** Memory-Scopes und propagiert die Identität via ContextVars und HTTP-Headern an MCP-Tools und Gateways.
 
@@ -11,7 +11,6 @@ hermes-x-on-behalf/
 ├── scopes.py         # MemoryScopeResolver: Group→Scope-Mapping, Memory-Tags, Default-Scope
 ├── headers.py        # Header-Ableitung + X-Adapter-Secret-Validierung
 ├── config.py         # ~/.hermes/config.yaml (x_on_behalf:) als einzige Quelle + Env-Overrides
-├── honcho.py         # Optional: Wrapt Hermes' Honcho-Provider (Principal → peer/session)
 ├── interceptor.py    # httpx/aiohttp Header-Injektion aus current_principal
 ├── skills/
 │   └── memory-routing/SKILL.md   # Bündelt die Routing-Heuristik für den Agent
@@ -81,28 +80,3 @@ Sicherheitsgate: Ein deterministisch ermittelter Scope wird nur verwendet, wenn 
 
 Der gebündelte Skill **`memory-routing`** (automatisch via `ctx.register_skill` registriert) vermittelt dem Agent die Routing-Heuristik: Default-Scope der Conversation, themenbasiertes Umrouten nur innerhalb der erlaubten Scopes, Nachfragen bei Unsicherheit.
 
-## Honcho (optional)
-
-Ist in der YAML `honcho.enabled: true` gesetzt, wrapt das Plugin Hermes' Honcho-Memory-Provider (`hermes.plugins.memory.honcho.provider`) und leitet Workspace/Peer/Session aus dem `PrincipalContext` ab:
-
-| PrincipalContext | Honcho |
-|---|---|
-| `organization` | `workspace_id` |
-| `user_id` | `peer_id` = `user:<id>` |
-| `conversation_id` | `session_id` (`talk:room:<token>` / `deck:board:<id>:card:<id>`) |
-| berechnete Scopes | personal / team / org |
-
-Ohne Honcho (oder wenn Hermes' Provider nicht gefunden wird) läuft alles andere normal — die Integration scheitert weich (fail-soft).
-
-## Memory-Modell
-
-```
-Honcho Workspace (org)
-├── Peers: user:alice, user:bob, hermes
-└── Sessions: talk:room:42, deck:board:12:card:44
-
-Memory-Scopes (serverseitig berechnet):
-  personal:user:alice     → nur alice
-  team:erzieher           → alle Mitglieder der NC-Gruppe "erzieher"
-  org:kiga                → alle interaktiven Nutzer der Instanz
-```

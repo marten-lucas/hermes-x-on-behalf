@@ -46,17 +46,10 @@ class MemoryConfig:
 
 
 @dataclass
-class HonchoConfig:
-    enabled: bool = False
-    workspace_id: Optional[str] = None  # defaults to organization
-
-
-@dataclass
 class PluginConfig:
     organization: Optional[str] = None
     group_mapping: Dict[str, GroupMapping] = field(default_factory=dict)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
-    honcho: HonchoConfig = field(default_factory=HonchoConfig)
     adapter_secret: Optional[str] = None  # from env only, never from YAML
     debug: bool = False
     fallback_user: Optional[str] = None  # from env only (legacy cron fallback)
@@ -109,13 +102,6 @@ def _apply_mapping_section(data: Dict[str, Any], cfg: PluginConfig) -> None:
             conversation_scopes={str(k): str(v) for k, v in (memory.get("conversation_scopes") or {}).items()}
             if isinstance(memory.get("conversation_scopes"), dict) else {},
             fallback_scope=str(memory.get("fallback_scope") or DEFAULT_SCOPE),
-        )
-
-    honcho = data.get("honcho") or {}
-    if isinstance(honcho, dict):
-        cfg.honcho = HonchoConfig(
-            enabled=bool(honcho.get("enabled", False)),
-            workspace_id=honcho.get("workspace_id") or None,
         )
 
     svc = data.get("service_identity") or {}
